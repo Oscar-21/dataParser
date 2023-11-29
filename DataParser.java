@@ -156,8 +156,8 @@ public class DataParser
 	private static String processDate( IContext context, Date value, String pattern, boolean shouldLocalize ) {
 		Date date = (Date) value;
 		Locale userLocale = Core.getLocale(context);
-		DateFormat dateFormat = hasDisplayPattern ? df = new SimpleDateFormat(pattern, userLocale) : new SimpleDateFormat("dd-MMM-yyyy", userLocale);
 		boolean hasDisplayPattern = pattern != null && !"".equals(pattern);
+		DateFormat dateFormat = hasDisplayPattern ? df = new SimpleDateFormat(pattern, userLocale) : new SimpleDateFormat("dd-MMM-yyyy", userLocale);
         if ( shouldLocalize ) {
             TokenReplacer._logger.trace("Processing value as date, localized");
             TokenReplacer._logger.trace("Processing date in timezone " + getSessionTimeZone(context).getDisplayName());
