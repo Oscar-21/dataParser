@@ -203,7 +203,8 @@ public class DataParser
 		return "";
 	}
 	
-	private static String getFormattedValue( IContext context, String pattern, Object value ) {
+	private static String getFormattedValue( IContext context, String pattern, Object value )
+    {
 	   Formatter formatter = new Formatter(Core.getLocale(context));
 	   String strValue = formatter.format(Core.getLocale(context), pattern, value ).toString();
 	   formatter.close();
