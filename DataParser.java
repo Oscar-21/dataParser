@@ -16,6 +16,7 @@ import java.util.TimeZone;
 
 import com.mendix.core.Core;
 import com.mendix.core.CoreException;
+import com.mendix.core.objectmanagement.member.MendixDateTime;
 import com.mendix.core.objectmanagement.member.MendixEnum;
 import com.mendix.systemwideinterfaces.core.IContext;
 import com.mendix.systemwideinterfaces.core.IMendixObjectMember;
@@ -24,6 +25,43 @@ import com.mendix.systemwideinterfaces.core.meta.IMetaEnumValue;
 
 public class DataParser
 {
+
+	public static String getStringValue(IMendixObjectMember<?> value, String pattern, IContext context, boolean shouldTrimValue) throws CoreException {
+		if (shouldTrimValue) {
+			return getTrimmedValue(context, getStringValue(value, pattern, context));
+		}
+		else 
+			return getStringValue(value, pattern, context);
+	}
+
+	public static String getStringValue(IMendixObjectMember<?> value, String pattern, IContext context) throws CoreException {
+			if ( value.getValue(context) == null ) {
+				TokenReplacer._logger.trace("MendixObjectMember has no content");
+				return "";
+			}
+
+			if ( value instanceof MendixEnum ) {
+				TokenReplacer._logger.trace("Processing value as MendixEnum");
+				MendixEnum enumeration = (MendixEnum) value;
+				try {
+					IMetaEnumValue enumValue = enumeration.getEnumeration().getEnumValues().get(enumeration.getValue(context));
+					return Core.getInternationalizedString(context, enumValue.getI18NCaptionKey());
+				}
+				catch( Exception e ) {
+					Core.getLogger("TokenReplacer").warn(e);
+					return enumeration.getValue(context);
+				}
+			}
+			
+			if ( value instanceof MendixDateTime ) {
+				boolean shouldLocalize = ((MendixDateTime) value).shouldLocalize();
+				Date dateValue = ((MendixDateTime)value).getValue(context);
+				return processDate(context, dateValue, pattern, shouldLocalize);
+			}
+			
+			// Get the attribute value
+			return getStringValue(value.getValue(context), pattern, context);
+	}
 
 	public static String getStringValue( Object value, String pattern, IContext context ) throws CoreException
 	{
@@ -76,14 +114,7 @@ public class DataParser
 		}
 		else if ( value instanceof Date ) {
 			TokenReplacer._logger.trace("Processing value as date, localized");
-			
-			if( pattern != null && !"".equals(pattern) ) {
-				SimpleDateFormat df = new SimpleDateFormat(pattern, Core.getLocale(context) );
-				df.setTimeZone(getSessionTimeZone(context));
-				
-				return df.format( (Date) value );
-			}
-			return processDate(context, (Date) value, true);
+			return processDate(context, (Date) value, pattern, true);
 		}
 		else if ( value instanceof Long ) {
 			TokenReplacer._logger.trace("Processing value as long");
@@ -99,35 +130,13 @@ public class DataParser
 				if( pattern != null && !"".equals(pattern) ) {
 					DecimalFormat df = (DecimalFormat) NumberFormat.getInstance( Core.getLocale(context) );
 					df.applyLocalizedPattern(pattern);
-					
 					return df.format( bd );
 				}
 				return bd.toString();
 			}
 		}
 		else if ( value instanceof IMendixObjectMember ) {
-			IMendixObjectMember<?> member = (IMendixObjectMember<?>) value;
-			if ( member.getValue(context) == null ) {
-				TokenReplacer._logger.trace("MendixObjectMember has no content");
-				return "";
-			}
-
-			if ( value instanceof MendixEnum ) {
-				TokenReplacer._logger.trace("Processing value as MendixEnum");
-				MendixEnum enumeration = (MendixEnum) value;
-				try {
-					IMetaEnumValue enumValue = enumeration.getEnumeration().getEnumValues().get(enumeration.getValue(context));
-					return Core.getInternationalizedString(context, enumValue.getI18NCaptionKey());
-				}
-				catch( Exception e ) {
-					Core.getLogger("TokenReplacer").warn(e);
-					return enumeration.getValue(context);
-				}
-			}
-			// Now re-do this same function after getting the actual attribute value
-			else 
-				return getStringValue( ((IMendixObjectMember<?>) value).getValue(context), pattern, context );
-			
+			return getStringValue(((IMendixObjectMember<?>) value), pattern, context);
 		}
 		else
 			TokenReplacer._logger.warn("Unimplemented value: " + value + " <" + value.getClass().getName() + ">");
@@ -135,10 +144,19 @@ public class DataParser
 		return "";
 	}
 
+	private static String getTrimmedValue( IContext context, IMendixObjectMember<?> value, String pattern) {
+		if ( value instanceof MendixDateTime ) {
+            Date dateValue = ((MendixDateTime) value).getValue(context);
+            boolean shouldLocalize = ((MendixDateTime) value).shouldLocalize();
+			return processDate(context, dateValue, pattern, shouldLocalize).trim();
+		}
+        return getTrimmedValue(context, value.getValue(context));
+	}
+
 	public static String getTrimmedValue( IContext context, Object value ) {
 		String strValue = null;
 		if ( value != null ) {
-			if ( value instanceof String )
+			if ( value instanceof String)
 				strValue = ((String) value).trim();
 			else if ( value instanceof Float || value instanceof Double ) {
 				if ( value instanceof Float )
@@ -146,7 +164,7 @@ public class DataParser
 				strValue = getFormattedNumber(context, (Double) value, 2, 20);
 			}
 			else if ( value instanceof Date )
-				strValue = processDate(context, (Date) value, true);
+				strValue = processDate(context, (Date) value, "", true);
 			else if ( value != null )
 				strValue = String.valueOf(value);
 		}
@@ -154,18 +172,23 @@ public class DataParser
 		return strValue;
 	}
 
-	private static String processDate( IContext context, Date value, boolean shouldLocalize ) {
+	private static String processDate(IContext context, Date value, String pattern, boolean shouldLocalize) {
 		Date date = (Date) value;
 		Locale userLocale = Core.getLocale(context);
-		DateFormat dateFormat = new SimpleDateFormat("dd-MMM-yyyy", userLocale);
+		DateFormat dateFormat = hasDisplayPattern ? df = new SimpleDateFormat(pattern, userLocale) : new SimpleDateFormat("dd-MMM-yyyy", userLocale);
+		boolean hasDisplayPattern = pattern != null && !"".equals(pattern);
+        if (shouldLocalize) {
+            TokenReplacer._logger.trace("Processing value as date, localized");
+            TokenReplacer._logger.trace("Processing date in timezone " + getSessionTimeZone(context).getDisplayName());
+            dateFormat.setTimeZone(getSessionTimeZone(context));
+        }
+        else {
+            TokenReplacer._logger.trace("Processing value as date, not localized");
+            TokenReplacer._logger.trace("Processing date in timezone UTC");
+            dateFormat.setTimeZone(getUTCTimeZone());
+        }
+        return dateFormat.format(date);
 
-		TokenReplacer._logger.trace("Processing date in timezone " + (shouldLocalize ? getSessionTimeZone(context).getDisplayName() : "UTC"));
-		if ( shouldLocalize )
-			dateFormat.setTimeZone(getSessionTimeZone(context));
-		else
-			dateFormat.setTimeZone(getUTCTimeZone());
-
-		return dateFormat.format(date);
 	}
 
 	public static TimeZone getSessionTimeZone( IContext context ) {
@@ -199,7 +222,7 @@ public class DataParser
 		return "";
 	}
 	
-	private static String getFormattedValue( IContext context, String pattern, Object value ) { 
+	private static String getFormattedValue( IContext context, String pattern, Object value ) {
 	   Formatter formatter = new Formatter(Core.getLocale(context));
 	   String strValue = formatter.format(Core.getLocale(context), pattern, value ).toString();
 	   formatter.close();
